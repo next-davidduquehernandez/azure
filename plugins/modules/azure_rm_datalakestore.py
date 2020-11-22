@@ -25,6 +25,15 @@ options:
         description:
             - The default owner group for all new folders and files created in the Data Lake Store account.
         type: str
+    dir_path_list:
+        description:
+            - XXX
+        type: list
+        suboptions:
+            name:
+                description:
+                    - Name of the directory.
+                type: string
     encryption_config:
         description:
             - The Key Vault encryption configuration.
@@ -339,6 +348,12 @@ state:
             type: str
             returned: always
             sample: Consumption
+        paths_created:
+            description:
+                - List of paths created inside Azure Data Lake Store.
+            returned: always
+            type: list
+            sample: ["foo/bar"]
         provisioning_state:
             description:
                 - The provisioning status of the Data Lake Store account.
@@ -413,6 +428,7 @@ state:
 from ansible_collections.azure.azcollection.plugins.module_utils.azure_rm_common import AzureRMModuleBase
 
 try:
+    from azure.datalake.store import core, lib
     from msrestazure.azure_exceptions import CloudError
 except ImportError:
     # This is handled in azure_rm_common
@@ -424,6 +440,7 @@ class AzureRMDatalakeStore(AzureRMModuleBase):
 
         self.module_arg_spec = dict(
             default_group=dict(type='str'),
+            dir_path_list=dict(type='list'),
             encryption_config=dict(
                 type='dict',
                 options=dict(
@@ -488,6 +505,7 @@ class AzureRMDatalakeStore(AzureRMModuleBase):
         self.virtual_network_rules_model = None
         self.identity = None
         self.identity_model = None
+        self.dir_path_list = None
 
         self.results = dict(changed=False)
         self.account_dict = None
@@ -530,8 +548,10 @@ class AzureRMDatalakeStore(AzureRMModuleBase):
         if self.state == 'present':
             if not self.account_dict:
                 self.results['state'] = self.create_datalake_store()
+                self.results['state']['paths_created'] = self.create_paths()
             else:
                 self.results['state'] = self.update_datalake_store()
+                self.results['state']['paths_created'] = self.create_paths()
         else:
             self.delete_datalake_store()
             self.results['state'] = dict(state='Deleted')
@@ -684,6 +704,23 @@ class AzureRMDatalakeStore(AzureRMModuleBase):
             
         return self.get_datalake_store()
 
+    def create_paths(self):
+        created_paths = list()
+        if self.dir_path_list is not None:
+            if not self.credentials.get('secret') and not self.credentials.get('client_id'):
+                adl = core.AzureDLFileSystem(self.azure_auth.azure_credentials, store_name=self.name)
+            else:
+                adl = core.AzureDLFileSystem(tenant_id=self.credentials.get('tenant', "common"),
+                                             client_secret=self.credentials['secret'],
+                                             client_id=self.credentials['client_id'],
+                                             store_name=self.name)
+            for path in self.dir_path_list:
+                if not adl.exists(path):
+                    self.results['changed'] = True
+                    adl.mkdir(path)
+                    created_paths.append(path)
+        return created_paths
+
     def delete_datalake_store(self):
         self.log('Delete datalake store {0}'.format(self.name))
 
@@ -732,6 +769,7 @@ class AzureRMDatalakeStore(AzureRMModuleBase):
             location=datalake_store_obj.location,
             name=datalake_store_obj.name,
             new_tier=datalake_store_obj.new_tier,
+            paths_created=None,
             provisioning_state=datalake_store_obj.provisioning_state,
             state=datalake_store_obj.state,
             tags=datalake_store_obj.tags,

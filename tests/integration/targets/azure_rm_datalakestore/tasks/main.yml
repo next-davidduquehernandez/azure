@@ -25,6 +25,8 @@
   azure_rm_datalakestore:
     resource_group: "{{ resource_group }}" 
     name: "{{ adl_name }}"
+    dir_path_list:
+        - foo/bar
   register: output
 
 - name: Assert status succeeded and results
@@ -42,6 +44,8 @@
       - output.state.firewall_state == "Disabled"
       - output.state.last_modified_time is defined
       - output.state.new_tier == "Consumption"
+      - output.state.paths_created | length == 1
+      - output.state.paths_created[0] == "foo/bar"
       - output.state.provisioning_state == "Succeeded"
       - output.state.trusted_id_provider_state == "Disabled"
 
@@ -49,12 +53,15 @@
   azure_rm_datalakestore:
     resource_group: "{{ resource_group }}" 
     name: "{{ adl_name }}"
+    dir_path_list:
+        - foo/bar
   register: output
 
 - name: Assert that status has not changed
   assert:
     that:
       - not output.changed
+      - output.state.paths_created | length == 0
 
 - name: Update data lake store to add virtual_network_rules
   azure_rm_datalakestore:
